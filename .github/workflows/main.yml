@@ -48,7 +48,7 @@ jobs:
           cat sonar-project.properties
       - name: "create fortify.confgig.yml"
         run: |
-          echo "applicationID=$FORTIFY_APPLICATIONID" >> fortify.config.yml
-          echo "fileSpecifier=$FORTIFY_FILESPECIFIER" >> fortify.config.yml
+          echo "applicationID: $FORTIFY_APPLICATIONID" >> fortify.config.yml
+          echo "fileSpecifier: $FORTIFY_FILESPECIFIER" >> fortify.config.yml
           cat fortify.config.yml
       
