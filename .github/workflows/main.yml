@@ -1,0 +1,32 @@
+name: Dynamic Variables Workflow
+
+on:
+  workflow_dispatch:
+    inputs:
+      age:
+        description: "Enter the age"
+        required: true
+        type: number
+      name:
+        description: "Enter the name"
+        required: true
+        type: string
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set Dynamic Variable
+        id: set_variable
+        run: |
+          if [ "${{ github.event.inputs.age }}" -eq 20 ]; then
+            echo "VAR=AgeIsTwenty" >> $GITHUB_ENV
+          else
+            echo "VAR=${{ github.event.inputs.name }}" >> $GITHUB_ENV
+          fi
+
+      - name: Use Dynamic Variable
+        run: |
+          echo "The value of VAR is: $VAR"
+          # You can use $VAR in any way here, e.g., in API requests or as a part of another command.
