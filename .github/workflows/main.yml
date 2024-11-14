@@ -31,5 +31,5 @@ jobs:
       - name: Use Dynamic Variable
         run: |
           echo "The value of VAR is: $VAR"
-          echo " ENV from workflow is $NAME and $AGE
+          echo "ENV from workflow is $NAME and $AGE"
           # You can use $VAR in any way here, e.g., in API requests or as a part of another command.
