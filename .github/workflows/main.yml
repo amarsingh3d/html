@@ -25,7 +25,7 @@ jobs:
       - name: Set Dynamic Variable
         id: set_variable
         run: |
-          if [ "${{ github.event.inputs.app_type }}" -eq UI5 ]; then
+          if [ "${{ github.event.inputs.app_type }}" -eq "UI5" ]; then
             echo "SONAR_PROJECT=${{  github.event.inputs.git_repo_name }}-corprateit" >> $GITHUB_ENV
             echo "SONAR_SOURCES=." >> $GITHUB_ENV
             echo "SONAR_EXCLUSIONS=webapp/test/**,webapp/css/**.json" >> $GITHUB_ENV
