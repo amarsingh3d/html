@@ -1,0 +1,218 @@
+resource "google_kms_key_ring_iam_member" "k8s_cluster_worldpay_canton" {
+  for_each    = toset(local.canton_sa_iam_roles)
+  key_ring_id = google_kms_key_ring.k8s_cluster_worldpay_canton.id
+  role        = each.key
+  member      = google_service_account.worldpay-canton.member
+}
+
+resource "google_kms_crypto_key" "k8s_cluster_worldpay_canton1" {
+  name     = "${local.project_id_short}-${local.env}-worldpay-canton-signing-key1"
+  key_ring = google_kms_key_ring.k8s_cluster_worldpay_canton.id
+}
+
+resource "google_kms_crypto_key_iam_member" "k8s_cluster_worldpay_canton_binding" {
+  crypto_key_id = google_kms_crypto_key.k8s_cluster_worldpay_canton1.id
+  role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+  member        = google_service_account.k8s_cluster.member
+}
+resource "google_kms_crypto_key_iam_member" "k8s_cluster_database_encryption_container_engine_robot_worlpay_canton" {
+  crypto_key_id = google_kms_crypto_key.k8s_cluster_worldpay_canton1.id
+  role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+  member        = "serviceAccount:service-${data.google_project.this.number}@container-engine-robot.iam.gserviceaccount.com"
+}
+
+---------------------------------------------
+## Network Resources in Europe North Finland for Worldpay Canton
+
+resource "google_compute_subnetwork" "nodeops_k8s_worldpay_canton_devnet" {
+  name                     = "${local.project_id_short}-${local.env}-k8s-worldpay-canton-devnet"
+  ip_cidr_range            = var.private_cidr_i
+  network                  = google_compute_network.nodeops.id
+  private_ip_google_access = true
+  region                   = "europe-north1"
+
+  secondary_ip_range {
+    range_name    = "${local.project_id_short}-k8s-pods-worldpay-canton-devnet"
+    ip_cidr_range = var.private_cidr_pods_worldpay_canton_devnet
+  }
+
+  secondary_ip_range {
+    range_name    = "${local.project_id_short}-k8s-services-worldpay-canton-devnet"
+    ip_cidr_range = var.private_cidr_services_worldpay_canton_devnet
+  }
+
+}
+
+resource "google_compute_router" "nodeops_worldpay_canton_devnet" {
+  name    = "${local.project_id_short}-${local.env}-worldpay-canton-devnet"
+  network = google_compute_network.nodeops.id
+  region  = local.region_europenorth1
+}
+
+resource "google_compute_router_nat" "nodeops_worldpay_canton_devnet" {
+  name                               = "${local.project_id_short}-${local.env}-k8s-worldpay-canton-devnet"
+  router                             = google_compute_router.nodeops_worldpay_canton_devnet.name
+  region                             = local.region_europenorth1
+  nat_ip_allocate_option             = "MANUAL_ONLY"
+  nat_ips                            = [google_compute_address.nodeops_k8s_canton_devnet_worldpay.self_link]
+  source_subnetwork_ip_ranges_to_nat = "LIST_OF_SUBNETWORKS"
+  subnetwork {
+    name                    = google_compute_subnetwork.nodeops_k8s_worldpay_canton_devnet.id
+    source_ip_ranges_to_nat = ["ALL_IP_RANGES"]
+  }
+  enable_endpoint_independent_mapping = false
+
+  min_ports_per_vm = 64
+  log_config {
+    enable = false
+    filter = "ALL"
+  }
+}
+
+-----------------------------------------------
+locals {
+  k8s_canton_devnet_node_locations = ["${local.region_europenorth1}-b", "${local.region_europenorth1}-c"]
+  k8s_wp_canton_devnet             = "wp-canton-devnet"
+}
+
+resource "google_container_cluster" "nodeops_worldpay_canton_devnet" {
+  deletion_protection         = true
+  provider                    = google-beta
+  name                        = "${local.project_id_short}-${local.env}-worldpay-canton-devnet"
+  location                    = local.region_europenorth1
+  network                     = google_compute_network.nodeops.self_link
+  subnetwork                  = google_compute_subnetwork.nodeops_k8s_worldpay_canton_devnet.self_link
+  networking_mode             = "VPC_NATIVE"
+  enable_intranode_visibility = true
+  datapath_provider           = "ADVANCED_DATAPATH"
+  min_master_version          = var.min_master_version_eu
+
+  # We can't create a cluster with no node pool defined, but we want to only use
+  # separately managed node pools. So we create the smallest possible default
+  # node pool and immediately delete it.
+  node_locations           = local.k8s_canton_devnet_node_locations
+  initial_node_count       = 1
+  remove_default_node_pool = true
+
+  release_channel { channel = "REGULAR" }
+  binary_authorization { evaluation_mode = "DISABLED" }
+  cluster_autoscaling { autoscaling_profile = "OPTIMIZE_UTILIZATION" }
+
+  database_encryption {
+    state    = "ENCRYPTED"
+    key_name = google_kms_crypto_key.k8s_cluster_worldpay_canton1.id
+  }
+
+  addons_config {
+    gce_persistent_disk_csi_driver_config {
+      enabled = true
+    }
+    gke_backup_agent_config {
+      enabled = true
+    }
+  }
+
+  ip_allocation_policy {
+    cluster_secondary_range_name  = "${local.project_id_short}-k8s-pods-worldpay-canton-devnet"
+    services_secondary_range_name = "${local.project_id_short}-k8s-services-worldpay-canton-devnet"
+  }
+
+  private_cluster_config {
+    enable_private_nodes    = true
+    enable_private_endpoint = false
+    master_ipv4_cidr_block  = var.gke_master_ipv4_cidr_block_worldpay_canton_devnet
+  }
+
+  workload_identity_config {
+    workload_pool = "${local.project_id}.svc.id.goog"
+  }
+
+  logging_config { enable_components = ["SYSTEM_COMPONENTS"] }
+
+  ## do we actually need this? when both `monitoring_service` and `monitoring_config` are defined the first time resource is created, we get:
+  ## `Error: googleapi: Error 400: Cannot specify logging_config or monitoring_config together with logging_service or monitoring_service.`
+  # monitoring_service = "monitoring.googleapis.com/kubernetes"
+
+  monitoring_config {
+    managed_prometheus {
+      enabled = false
+    }
+  }
+
+  #   notification_config {
+  #     pubsub {
+  #       enabled = true
+  #       topic   = google_pubsub_topic.nodeops.id
+  #     }
+  #   }
+
+
+  resource_labels = merge(local.finops_labels, local.default_labels)
+
+  depends_on = [google_kms_crypto_key_iam_member.k8s_cluster_worldpay_canton_binding]
+}
+
+resource "google_container_node_pool" "worldpay_canton_devnet" {
+  name           = "worldpay-canton-devnet"
+  cluster        = google_container_cluster.nodeops_worldpay_canton_devnet.name
+  location       = local.region_europenorth1
+  node_locations = local.k8s_canton_devnet_node_locations
+
+  autoscaling {
+    location_policy      = "ANY"
+    total_min_node_count = 2
+    total_max_node_count = 10
+  }
+
+  management {
+    auto_repair  = true
+    auto_upgrade = true
+  }
+
+  upgrade_settings {
+    max_surge       = 1
+    max_unavailable = 0
+  }
+
+  node_config {
+    preemptible  = false
+    machine_type = var.gke_node_machine_type_eu
+    image_type   = "COS_CONTAINERD"
+    disk_size_gb = var.gke_node_disk_size_gb
+
+    workload_metadata_config { mode = "GKE_METADATA" }
+
+    shielded_instance_config {
+      enable_secure_boot          = true
+      enable_integrity_monitoring = true
+    }
+
+    service_account = google_service_account.k8s_cluster.email
+    oauth_scopes    = ["https://www.googleapis.com/auth/cloud-platform"]
+
+    resource_labels = merge(local.default_labels, local.finops_labels)
+
+    tags = [local.k8s_wp_canton_devnet]
+  }
+}
+-------------------------------
+
+variable "gke_master_ipv4_cidr_block_worldpay_canton_devnet" {
+  type = string
+}
+
+variable "private_cidr_pods_worldpay_canton_devnet" {
+  type = string
+}
+
+variable "private_cidr_services_worldpay_canton_devnet" {
+  type = string
+}
+variable "private_cidr_i" {
+  type = string
+}
+
+-------------------------------------------
+gke_master_ipv4_cidr_block_worldpay_canton_devnet = "172.16.64.64/28"
+private_cidr_pods_worldpay_canton_devnet          = "10.112.0.0/14"
+private_cidr_services_worldpay_canton_devnet      = "10.84.96.0/20"
